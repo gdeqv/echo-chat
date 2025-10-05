@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Echo-Chat</title>
+  <style>
+    body{font-family:Arial;margin:0;background:#f5f5f7}
+    .app{max-width:1000px;margin:20px auto;background:#fff;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.08);overflow:hidden}
+    header{padding:16px;border-bottom:1px solid #eee;background:#1976d2;color:#fff}
+    .container{display:flex}
+    .sidebar{width:280px;padding:16px;border-right:1px solid #eee}
+    .chat{flex:1;display:flex;flex-direction:column;height:70vh}
+    .messages{flex:1;padding:16px;overflow:auto}
+    .message{margin-bottom:12px}
+    .message .nick{font-weight:bold;margin-right:8px}
+    .input-area{display:flex;padding:12px;border-top:1px solid #eee}
+    .input-area input[type=text]{flex:1;padding:8px;border:1px solid #ccc;border-radius:6px;margin-right:8px}
+    .input-area button{padding:8px 12px;border:none;border-radius:6px;background:#1976d2;color:#fff}
+    .small{font-size:13px;color:#666}
+    .nick-list{margin-top:8px}
+    img.msg-photo{max-width:300px;border-radius:6px;margin-top:4px}
+    .rooms{margin-top:20px}
+    .room-item{display:flex;align-items:center;margin-bottom:6px}
+    .room-item button{margin-left:auto}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h2>Echo-Chat</h2>
+    </header>
+
+    <div class="container">
+      <div class="sidebar">
+        <div id="auth">
+          <h3>Вход</h3>
+          <input id="login" placeholder="Логин" /> <br/><br/>
+          <input id="password" placeholder="Пароль" type="password" /> <br/><br/>
+          <button id="btnLogin">Войти</button>
+          <div id="authMsg" class="small"></div>
+        </div>
+
+        <div id="nicksUI" style="display:none">
+          <h3>Ваши ники</h3>
+          <div id="nickList"></div>
+          <input id="newNick" placeholder="Новый ник" />
+          <button id="btnAddNick">Добавить</button>
+        </div>
+
+        <div id="searchUI" style="display:none">
+          <h3>Поиск ников</h3>
+          <input id="searchNick" placeholder="Введите ник" />
+          <button id="btnSearchNick">Найти</button>
+          <div id="searchResults"></div>
+        </div>
+
+        <div id="roomsUI" style="display:none">
+          <h3>Чаты</h3>
+          <button id="btnCreateRoom">Создать чат</button>
+          <div id="roomList"></div>
+        </div>
+      </div>
+
+      <div class="chat">
+        <div class="messages" id="messages"></div>
+
+        <div class="input-area">
+          <input id="msgText" type="text" placeholder="Сообщение..." />
+          <button id="sendBtn">Отправить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const socket = io();
+  let current = { login:null, nick:null, room:'global' };
+
+  const messages=document.getElementById('messages');
+  function appendMessage(html){
+    const div=document.createElement('div');
+    div.className='message';
+    div.innerHTML=html;
+    messages.appendChild(div);
+    messages.scrollTop=messages.scrollHeight;
+  }
+
+  document.getElementById('btnSearchNick').onclick=async()=>{
+    const q=document.getElementById('searchNick').value.trim();
+    const res=await fetch('/api/search-nick?q='+encodeURIComponent(q));
+    const data=await res.json();
+    let out='';
+    if(data.nicks.length===0) out='Ничего не найдено';
+    else data.nicks.forEach(n=>{
+      out+='<div>'+n+' <button onclick="invite(\''+n+'\')">Пригласить в чат</button></div>';
+    });
+    document.getElementById('searchResults').innerHTML=out;
+  }
+
+  window.invite=function(nick){
+    const roomName=prompt('Введите название нового чата:');
+    if(!roomName) return;
+    socket.emit('createRoom',{room:roomName,creator:current.nick,invite:nick});
+  }
+
+  document.getElementById('btnCreateRoom').onclick=()=>{
+    const roomName=prompt('Название чата:');
+    if(roomName){
+      socket.emit('createRoom',{room:roomName,creator:current.nick});
+    }
+  }
+
+  socket.on('roomList', rooms=>{
+    const rl=document.getElementById('roomList');
+    rl.innerHTML='';
+    rooms.forEach(r=>{
+      const div=document.createElement('div');div.className='room-item';
+      div.textContent=r;
+      const btn=document.createElement('button');btn.textContent='Войти';
+      btn.onclick=()=>{
+        current.room=r;
+        messages.innerHTML='';
+        socket.emit('joinRoom',{room:r,nick:current.nick});
+      };
+      div.appendChild(btn);
+      rl.appendChild(div);
+    });
+  });
+
+  document.getElementById('sendBtn').onclick=()=>{
+    const text=document.getElementById('msgText').value.trim();
+    if(!text) return;
+    socket.emit('message',{room:current.room,nick:current.nick,text});
+    document.getElementById('msgText').value='';
+  }
+
+  socket.on('broadcast',msg=>{
+    if(msg.room!==current.room) return;
+    appendMessage('<span class="nick">'+msg.nick+'</span>: '+msg.text);
+  });
+</script>
+</body>
+  </html>
